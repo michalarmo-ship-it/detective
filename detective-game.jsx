@@ -1,0 +1,915 @@
+import { useState, useCallback, useEffect } from "react";
+
+// ─── Data ─────────────────────────────────────────────────────────────────────
+const SKIN_TONES = ["#FDDBB4","#F5C28A","#D4956A","#8D5524"];
+const HAIR_COLORS = {
+  שחור:"#1a1a1a", חום:"#6B3A2A", בלונדיני:"#E8C86A",
+  "ג'ינג'י":"#C0392B", ורוד:"#FF69B4", לבן:"#e8e8e8",
+};
+const SHIRT_COLORS = {
+  אדום:"#E74C3C", כחול:"#2980B9", ירוק:"#27AE60",
+  צהוב:"#F1C40F", סגול:"#8E44AD", כתום:"#E67E22",
+};
+const SHIRT_PATTERNS = ["אחידה","מפוספסת","מנומרת"];
+// Shirt colors in feminine form (חולצה = feminine noun)
+const SHIRT_COLOR_F = {
+  אדום:"אדומה", כחול:"כחולה", ירוק:"ירוקה",
+  צהוב:"צהובה", סגול:"סגולה", כתום:"כתומה",
+};
+const ATTR_EMOJI = {
+  glasses:"👓", mustache:"🧔", hat:"🎩",
+  hairColor:"👤", hair:"👤", gender:"🧑",
+  shirtColor:"👕", shirt:"👕", shirtPattern:"👕", beard:"🧔",
+};
+// Hair color → person emoji with that hair tone (approximate)
+const HAIR_PERSON_EMOJI = {
+  שחור:"🧑🏻‍🦱", חום:"👨🏽", בלונדיני:"👱", "ג'ינג'י":"🧑‍🦰", ורוד:"🧑🏻", לבן:"🧓",
+};
+const SHIRT_COLOR_EMOJI = {
+  אדום:"🔴", כחול:"🔵", ירוק:"🟢", צהוב:"🟡", סגול:"🟣", כתום:"🟠",
+};
+const ADJ_HAIR = {
+  שחור:{m:"שחור",f:"שחורה"}, חום:{m:"חום",f:"חומה"},
+  בלונדיני:{m:"בלונדיני",f:"בלונדינית"}, "ג'ינג'י":{m:"ג'ינג'י",f:"ג'ינג'ית"},
+  ורוד:{m:"ורוד",f:"ורודה"}, לבן:{m:"לבן",f:"לבנה"},
+};
+const ADJ_STYLE = {
+  קצר:{m:"קצר",f:"קצרה"}, ארוך:{m:"ארוך",f:"ארוכה"}, מתולתל:{m:"מתולתל",f:"מתולתלת"},
+};
+const GENDER_NOUN = { זכר:{sg:"ילד",pl:"ילדים"}, נקבה:{sg:"ילדה",pl:"ילדות"} };
+
+function randomFrom(arr) { return arr[Math.floor(Math.random()*arr.length)]; }
+
+function speak(text) {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang="he-IL"; u.rate=0.88; u.pitch=1.1;
+  window.speechSynthesis.speak(u);
+}
+
+function generateCharacter(id, fg=null) {
+  const hairColorName = randomFrom(Object.keys(HAIR_COLORS));
+  const shirtColorName = randomFrom(Object.keys(SHIRT_COLORS));
+  const gender = fg || randomFrom(["זכר","נקבה"]);
+  return {
+    id, gender, skinTone: randomFrom(SKIN_TONES),
+    hairColorName, hairColor: HAIR_COLORS[hairColorName],
+    hairStyle: randomFrom(["קצר","ארוך","מתולתל"]),
+    glasses: Math.random()>0.55,
+    mustache: gender==="זכר" && Math.random()>0.65,
+    beard: gender==="זכר" && Math.random()>0.7,
+    hat: randomFrom([null,null,"בייסבול","קש"]),
+    shirtColorName, shirtColor:SHIRT_COLORS[shirtColorName],
+    shirtPattern: randomFrom(SHIRT_PATTERNS),
+  };
+}
+
+// ─── Hair helpers ─────────────────────────────────────────────────────────────
+function HairLong({cx,headY,headR,color}) {
+  // Top cap + side strands starting from upper head
+  const topY = headY - headR*0.75;
+  return <>
+    <ellipse cx={cx} cy={headY-headR*0.55} rx={headR*1.06} ry={headR*0.82} fill={color}/>
+    <rect x={cx-headR*1.05} y={topY} width={headR*0.44} height={headR*2.2} rx={headR*0.22} fill={color}/>
+    <rect x={cx+headR*0.61} y={topY} width={headR*0.44} height={headR*2.2} rx={headR*0.22} fill={color}/>
+  </>;
+}
+
+function HairCurly({cx,headY,headR,color}) {
+  // Big poofy curly hair using overlapping bumpy circles
+  const c = color;
+  return <>
+    {/* Base puff */}
+    <ellipse cx={cx} cy={headY-headR*0.7} rx={headR*1.18} ry={headR*0.95} fill={c}/>
+    {/* Bumpy curls around edge */}
+    <circle cx={cx-headR*1.0} cy={headY-headR*0.4} r={headR*0.38} fill={c}/>
+    <circle cx={cx+headR*1.0} cy={headY-headR*0.4} r={headR*0.38} fill={c}/>
+    <circle cx={cx-headR*0.6} cy={headY-headR*1.4} r={headR*0.36} fill={c}/>
+    <circle cx={cx}            cy={headY-headR*1.55} r={headR*0.38} fill={c}/>
+    <circle cx={cx+headR*0.6}  cy={headY-headR*1.4} r={headR*0.36} fill={c}/>
+    <circle cx={cx-headR*1.05} cy={headY-headR*0.95} r={headR*0.32} fill={c}/>
+    <circle cx={cx+headR*1.05} cy={headY-headR*0.95} r={headR*0.32} fill={c}/>
+    {/* Fill gaps */}
+    <ellipse cx={cx} cy={headY-headR*1.45} rx={headR*0.75} ry={headR*0.38} fill={c}/>
+    <ellipse cx={cx-headR*0.9} cy={headY-headR*0.65} rx={headR*0.35} ry={headR*0.55} fill={c}/>
+    <ellipse cx={cx+headR*0.9} cy={headY-headR*0.65} rx={headR*0.35} ry={headR*0.55} fill={c}/>
+  </>;
+}
+
+function HairShort({cx,headY,headR,color}) {
+  return <ellipse cx={cx} cy={headY-headR*0.28} rx={headR*1.05} ry={headR*0.62} fill={color}/>;
+}
+
+// ─── Character SVG ────────────────────────────────────────────────────────────
+function CharacterSVG({char, size=120, sad=false}) {
+  const s=size, cx=s/2, headY=s*0.29, headR=s*0.185;
+  const bodyY=headY+headR+1, bodyH=s*0.3;
+  const pid=`p${char.id}_${s}`;
+  let patDef=null, fill=char.shirtColor;
+  if (char.shirtPattern==="מפוספסת") {
+    patDef=<pattern id={pid} patternUnits="userSpaceOnUse" width="8" height="8">
+      <rect width="8" height="8" fill={char.shirtColor}/>
+      <line x1="0" y1="4" x2="8" y2="4" stroke="rgba(255,255,255,0.45)" strokeWidth="3"/>
+    </pattern>;
+    fill=`url(#${pid})`;
+  } else if (char.shirtPattern==="מנומרת") {
+    patDef=<pattern id={pid} patternUnits="userSpaceOnUse" width="10" height="10">
+      <rect width="10" height="10" fill={char.shirtColor}/>
+      <circle cx="2" cy="2" r="2" fill="rgba(0,0,0,0.25)"/>
+      <circle cx="7" cy="7" r="2" fill="rgba(0,0,0,0.25)"/>
+    </pattern>;
+    fill=`url(#${pid})`;
+  }
+  const hc=char.hairColor;
+  return (
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+      <defs>{patDef}</defs>
+      <ellipse cx={cx} cy={s*0.92} rx={s*0.21} ry={s*0.05} fill="rgba(0,0,0,0.1)"/>
+      <rect x={cx-s*0.2} y={bodyY} width={s*0.4} height={bodyH} rx={s*0.05} fill={fill}/>
+      <rect x={cx-s*0.055} y={bodyY-s*0.035} width={s*0.11} height={s*0.07} fill={char.skinTone}/>
+      {/* Draw hair BEHIND head first */}
+      {char.hairStyle==="ארוך" && <HairLong cx={cx} headY={headY} headR={headR} color={hc}/>}
+      {char.hairStyle==="מתולתל" && <HairCurly cx={cx} headY={headY} headR={headR} color={hc}/>}
+      {/* Head */}
+      <ellipse cx={cx} cy={headY} rx={headR} ry={headR*1.1} fill={char.skinTone}/>
+      {/* Short hair on top (drawn after head so it covers) */}
+      {char.hairStyle==="קצר" && <HairShort cx={cx} headY={headY} headR={headR} color={hc}/>}
+      {/* Ears */}
+      <ellipse cx={cx-headR*0.96} cy={headY+headR*0.1} rx={headR*0.15} ry={headR*0.22} fill={char.skinTone}/>
+      <ellipse cx={cx+headR*0.96} cy={headY+headR*0.1} rx={headR*0.15} ry={headR*0.22} fill={char.skinTone}/>
+      {/* Face overlay */}
+      <ellipse cx={cx} cy={headY+headR*0.06} rx={headR*0.82} ry={headR*0.87} fill={char.skinTone}/>
+      {/* Eyes */}
+      <circle cx={cx-headR*0.33} cy={headY-headR*0.1} r={headR*0.13} fill="#2c3e50"/>
+      <circle cx={cx+headR*0.33} cy={headY-headR*0.1} r={headR*0.13} fill="#2c3e50"/>
+      <circle cx={cx-headR*0.3}  cy={headY-headR*0.13} r={headR*0.045} fill="white"/>
+      <circle cx={cx+headR*0.36} cy={headY-headR*0.13} r={headR*0.045} fill="white"/>
+      {/* Nose */}
+      <ellipse cx={cx} cy={headY+headR*0.19} rx={headR*0.1} ry={headR*0.08} fill="rgba(0,0,0,0.1)"/>
+      {/* Mouth */}
+      {sad
+        ? <path d={`M ${cx-headR*0.28} ${headY+headR*0.55} Q ${cx} ${headY+headR*0.38} ${cx+headR*0.28} ${headY+headR*0.55}`}
+            stroke="#c0392b" strokeWidth={headR*0.09} fill="none" strokeLinecap="round"/>
+        : <path d={`M ${cx-headR*0.28} ${headY+headR*0.42} Q ${cx} ${headY+headR*0.58} ${cx+headR*0.28} ${headY+headR*0.42}`}
+            stroke="#c0392b" strokeWidth={headR*0.09} fill="none" strokeLinecap="round"/>
+      }
+      {/* Glasses */}
+      {char.glasses && <g>
+        <rect x={cx-headR*0.62} y={headY-headR*0.24} width={headR*0.5} height={headR*0.33} rx={headR*0.09} fill="none" stroke="#2c3e50" strokeWidth={headR*0.08}/>
+        <rect x={cx+headR*0.12} y={headY-headR*0.24} width={headR*0.5} height={headR*0.33} rx={headR*0.09} fill="none" stroke="#2c3e50" strokeWidth={headR*0.08}/>
+        <line x1={cx-headR*0.12} y1={headY-headR*0.09} x2={cx+headR*0.12} y2={headY-headR*0.09} stroke="#2c3e50" strokeWidth={headR*0.07}/>
+        <line x1={cx-headR*0.63} y1={headY-headR*0.09} x2={cx-headR*0.73} y2={headY-headR*0.09} stroke="#2c3e50" strokeWidth={headR*0.07}/>
+        <line x1={cx+headR*0.62} y1={headY-headR*0.09} x2={cx+headR*0.72} y2={headY-headR*0.09} stroke="#2c3e50" strokeWidth={headR*0.07}/>
+      </g>}
+      {/* Mustache */}
+      {char.mustache && <>
+        <ellipse cx={cx-headR*0.17} cy={headY+headR*0.32} rx={headR*0.2} ry={headR*0.1} fill={hc}/>
+        <ellipse cx={cx+headR*0.17} cy={headY+headR*0.32} rx={headR*0.2} ry={headR*0.1} fill={hc}/>
+      </>}
+      {/* Beard */}
+      {char.beard && <ellipse cx={cx} cy={headY+headR*0.65} rx={headR*0.5} ry={headR*0.27} fill={hc}/>}
+      {/* Baseball cap - proper dome + front brim only */}
+      {char.hat==="בייסבול" && <g>
+        <path d={`M ${cx-headR*0.88} ${headY-headR*0.5}
+          Q ${cx-headR*0.92} ${headY-headR*1.62} ${cx} ${headY-headR*1.68}
+          Q ${cx+headR*0.92} ${headY-headR*1.62} ${cx+headR*0.88} ${headY-headR*0.5} Z`}
+          fill="#34495e"/>
+        <rect x={cx-headR*0.88} y={headY-headR*0.62} width={headR*1.76} height={headR*0.17} rx={headR*0.07} fill="#1a252f"/>
+        {/* Front brim - goes to one side */}
+        <path d={`M ${cx-headR*0.5} ${headY-headR*0.46}
+          L ${cx+headR*1.4} ${headY-headR*0.46}
+          Q ${cx+headR*1.55} ${headY-headR*0.28} ${cx+headR*1.3} ${headY-headR*0.25}
+          L ${cx-headR*0.5} ${headY-headR*0.37} Z`}
+          fill="#2c3e50"/>
+      </g>}
+      {/* Straw hat */}
+      {char.hat==="קש" && <g>
+        <ellipse cx={cx} cy={headY-headR*0.8} rx={headR*1.35} ry={headR*0.22} fill="#C19A6B"/>
+        <rect x={cx-headR*0.72} y={headY-headR*1.55} width={headR*1.44} height={headR*0.78} rx={headR*0.3} fill="#C19A6B"/>
+        <line x1={cx-headR*1.35} y1={headY-headR*0.8} x2={cx+headR*1.35} y2={headY-headR*0.8} stroke="#A0784A" strokeWidth={headR*0.1}/>
+      </g>}
+    </svg>
+  );
+}
+
+// ─── Detective SVG ────────────────────────────────────────────────────────────
+function DetectiveSVG({det, size=80}) {
+  const s=size, cx=s/2, headY=s*0.35, headR=s*0.19;
+  const bodyY=headY+headR+1, bodyH=s*0.28;
+  const hc = HAIR_COLORS[det.hairColorName]||"#1a1a1a";
+  return (
+    <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+      <ellipse cx={cx} cy={s*0.95} rx={s*0.19} ry={s*0.04} fill="rgba(0,0,0,0.12)"/>
+      <rect x={cx-s*0.22} y={bodyY} width={s*0.44} height={bodyH} rx={s*0.05} fill={det.coatColor||"#1a3a5c"}/>
+      <circle cx={cx-s*0.1} cy={bodyY+s*0.08} r={s*0.055} fill="#F1C40F" opacity="0.9"/>
+      <text x={cx-s*0.1} y={bodyY+s*0.1} textAnchor="middle" fontSize={s*0.065} fill="#1a1a1a" fontWeight="bold">★</text>
+      <rect x={cx-s*0.055} y={bodyY-s*0.035} width={s*0.11} height={s*0.07} fill={det.skinTone}/>
+      {/* Hair behind head */}
+      {det.hairStyle==="ארוך" && <HairLong cx={cx} headY={headY} headR={headR} color={hc}/>}
+      {det.hairStyle==="מתולתל" && <HairCurly cx={cx} headY={headY} headR={headR} color={hc}/>}
+      <ellipse cx={cx} cy={headY} rx={headR} ry={headR*1.05} fill={det.skinTone}/>
+      {det.hairStyle==="קצר" && <HairShort cx={cx} headY={headY} headR={headR} color={hc}/>}
+      <ellipse cx={cx-headR*0.95} cy={headY+headR*0.1} rx={headR*0.15} ry={headR*0.2} fill={det.skinTone}/>
+      <ellipse cx={cx+headR*0.95} cy={headY+headR*0.1} rx={headR*0.15} ry={headR*0.2} fill={det.skinTone}/>
+      <ellipse cx={cx} cy={headY+headR*0.05} rx={headR*0.8} ry={headR*0.86} fill={det.skinTone}/>
+      <circle cx={cx-headR*0.35} cy={headY-headR*0.1} r={headR*0.12} fill="#2c3e50"/>
+      <circle cx={cx+headR*0.35} cy={headY-headR*0.1} r={headR*0.12} fill="#2c3e50"/>
+      <circle cx={cx-headR*0.32} cy={headY-headR*0.13} r={headR*0.04} fill="white"/>
+      <circle cx={cx+headR*0.38} cy={headY-headR*0.13} r={headR*0.04} fill="white"/>
+      <path d={`M ${cx-headR*0.28} ${headY+headR*0.42} Q ${cx} ${headY+headR*0.58} ${cx+headR*0.28} ${headY+headR*0.42}`}
+        stroke="#c0392b" strokeWidth={headR*0.09} fill="none" strokeLinecap="round"/>
+      {det.glasses && <g>
+        <rect x={cx-headR*0.62} y={headY-headR*0.22} width={headR*0.5} height={headR*0.32} rx={headR*0.08} fill="none" stroke="#2c3e50" strokeWidth={headR*0.08}/>
+        <rect x={cx+headR*0.12} y={headY-headR*0.22} width={headR*0.5} height={headR*0.32} rx={headR*0.08} fill="none" stroke="#2c3e50" strokeWidth={headR*0.08}/>
+        <line x1={cx-headR*0.12} y1={headY-headR*0.08} x2={cx+headR*0.12} y2={headY-headR*0.08} stroke="#2c3e50" strokeWidth={headR*0.07}/>
+      </g>}
+      {det.mustache && <>
+        <ellipse cx={cx-headR*0.17} cy={headY+headR*0.33} rx={headR*0.2} ry={headR*0.1} fill={hc}/>
+        <ellipse cx={cx+headR*0.17} cy={headY+headR*0.33} rx={headR*0.2} ry={headR*0.1} fill={hc}/>
+      </>}
+      {/* Detective hat */}
+      <rect x={cx-headR*0.78} y={headY-headR*1.5} width={headR*1.56} height={headR*0.78} rx={headR*0.15} fill={det.hatColor||"#2c3e50"}/>
+      <ellipse cx={cx} cy={headY-headR*0.78} rx={headR*1.12} ry={headR*0.22} fill={det.hatColor||"#2c3e50"}/>
+      <rect x={cx-headR*0.78} y={headY-headR*0.9} width={headR*1.56} height={headR*0.14} rx={headR*0.05} fill={det.hatBand||"#F1C40F"} opacity="0.85"/>
+    </svg>
+  );
+}
+
+// ─── Arrest Animation ─────────────────────────────────────────────────────────
+function ArrestScene({detective, suspect, onContinue}) {
+  const [phase, setPhase] = useState(0); // 0=drive in, 1=stopped, 2=drive out
+  const [lightOn, setLightOn] = useState(true);
+
+  useEffect(() => {
+    const t = setInterval(()=>setLightOn(l=>!l), 300);
+    return ()=>clearInterval(t);
+  },[]);
+
+  useEffect(()=>{
+    // drive in → stop → drive out
+    const t1 = setTimeout(()=>setPhase(1), 700);
+    const t2 = setTimeout(()=>setPhase(2), 2200);
+    return ()=>{ clearTimeout(t1); clearTimeout(t2); };
+  },[]);
+
+  const carX = phase===0 ? "120%" : phase===1 ? "0%" : "-130%";
+  const W=340, H=200;
+
+  const sadSuspect = suspect ? {...suspect, id: suspect.id+200} : null;
+
+  return (
+    <div style={{position:"fixed",inset:0,zIndex:100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"rgba(10,15,30,0.88)"}}>
+      {/* Flash lights */}
+      <div style={{position:"absolute",inset:0,pointerEvents:"none",
+        background:lightOn?"radial-gradient(ellipse at 50% 50%, rgba(200,50,50,0.06) 0%, transparent 70%)":"radial-gradient(ellipse at 50% 50%, rgba(50,100,220,0.06) 0%, transparent 70%)",
+        transition:"background 0.3s"}}/>
+
+      <div style={{color:"#F1C40F",fontSize:26,fontWeight:800,marginBottom:18,textShadow:"0 0 20px rgba(241,196,15,0.5)",animation:"pop 0.4s ease"}}>
+        🚨 החשוד נתפס! 🚨
+      </div>
+
+      {/* Animated car */}
+      <div style={{transform:`translateX(${carX})`,transition:phase===0?"transform 0.7s ease-out":phase===2?"transform 0.9s ease-in":"transform 0.5s ease",overflow:"visible"}}>
+        <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} style={{filter:"drop-shadow(0 8px 30px rgba(0,80,220,0.4))"}}>
+          {/* Road */}
+          <rect x={0} y={H*0.73} width={W} height={H*0.27} fill="#2c3e50"/>
+          <rect x={0} y={H*0.73} width={W} height={3} fill="#7f8c8d"/>
+          <rect x={W*0.35} y={H*0.83} width={W*0.08} height={6} rx={3} fill="#f1c40f" opacity="0.6"/>
+          <rect x={W*0.55} y={H*0.83} width={W*0.08} height={6} rx={3} fill="#f1c40f" opacity="0.6"/>
+          {/* Car body */}
+          <rect x={30} y={H*0.37} width={W-60} height={H*0.38} rx={12} fill="#ecf0f1"/>
+          {/* Police blue stripe */}
+          <rect x={30} y={H*0.52} width={W-60} height={H*0.09} fill="#2980b9"/>
+          {/* Wheel wells */}
+          <circle cx={90} cy={H*0.78} r={24} fill="#2c3e50"/>
+          <circle cx={90} cy={H*0.78} r={14} fill="#95a5a6"/>
+          <circle cx={90} cy={H*0.78} r={6} fill="#7f8c8d"/>
+          <circle cx={W-90} cy={H*0.78} r={24} fill="#2c3e50"/>
+          <circle cx={W-90} cy={H*0.78} r={14} fill="#95a5a6"/>
+          <circle cx={W-90} cy={H*0.78} r={6} fill="#7f8c8d"/>
+          {/* Front windshield */}
+          <rect x={55} y={H*0.15} width={W*0.42} height={H*0.25} rx={8} fill="#85C1E9" opacity="0.75"/>
+          {/* Rear window with bars */}
+          <rect x={W-130} y={H*0.17} width={95} height={H*0.22} rx={6} fill="#5DADE2" opacity="0.55"/>
+          {[W-125,W-108,W-91,W-74,W-57].map(x=>(
+            <line key={x} x1={x} y1={H*0.17} x2={x} y2={H*0.38} stroke="rgba(0,0,0,0.55)" strokeWidth={2.5}/>
+          ))}
+          {/* Police text */}
+          <text x={W/2} y={H*0.63} textAnchor="middle" fontSize={14} fontWeight="bold" fill="white" fontFamily="sans-serif" letterSpacing="3">POLICE</text>
+          {/* Siren lights */}
+          <rect x={W/2-50} y={H*0.1} width={35} height={15} rx={6} fill={lightOn?"#e74c3c":"#7b241c"} style={{transition:"fill 0.15s"}}/>
+          <rect x={W/2+15} y={H*0.1} width={35} height={15} rx={6} fill={lightOn?"#3498db":"#1a5276"} style={{transition:"fill 0.15s"}}/>
+          {lightOn && <>
+            <ellipse cx={W/2-32} cy={H*0.1} rx={25} ry={10} fill="#e74c3c" opacity="0.25"/>
+            <ellipse cx={W/2+32} cy={H*0.1} rx={25} ry={10} fill="#3498db" opacity="0.25"/>
+          </>}
+          {/* Detective in front seat */}
+          {detective && (
+            <foreignObject x={62} y={H*0.16} width={W*0.38} height={H*0.23}>
+              <div xmlns="http://www.w3.org/1999/xhtml" style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                <DetectiveSVG det={detective} size={60}/>
+              </div>
+            </foreignObject>
+          )}
+          {/* Suspect in back seat (sad face) */}
+          {sadSuspect && (
+            <foreignObject x={W-128} y={H*0.18} width={88} height={H*0.2}>
+              <div xmlns="http://www.w3.org/1999/xhtml" style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center",overflow:"hidden"}}>
+                <CharacterSVG char={sadSuspect} size={62} sad={true}/>
+              </div>
+            </foreignObject>
+          )}
+        </svg>
+      </div>
+
+      {/* Sound effect text */}
+      {phase===1 && <div style={{color:"#aaa",fontSize:13,marginTop:8}}>🚔 נוסעים לתחנת המשטרה...</div>}
+
+      {phase >= 1 && (
+        <button style={{marginTop:20,background:"#F1C40F",color:"#1a1f2e",border:"none",padding:"13px 36px",borderRadius:12,fontSize:18,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(241,196,15,0.3)",animation:"pop 0.3s ease"}}
+          onClick={onContinue}>
+          המשך ←
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Description builder ─────────────────────────────────────────────────────
+function buildDesc(char, attrs) {
+  const parts = [];
+  const a = new Set(attrs);
+  // NO gender attribute
+  if (a.has("hair")) parts.push(`עם שיער ${char.hairColorName} ${char.hairStyle}`);
+  else if (a.has("hairColor")) parts.push(`עם שיער ${char.hairColorName}`);
+  if (a.has("glasses") && char.glasses) parts.push("עם משקפיים");
+  if (a.has("mustache") && char.mustache) parts.push("עם שפם");
+  if (a.has("beard") && char.beard) parts.push("עם זקן");
+  if (a.has("hat") && char.hat) parts.push("עם כובע");
+  if (a.has("shirt")) parts.push(`עם חולצה ${SHIRT_COLOR_F[char.shirtColorName]||char.shirtColorName}${char.shirtPattern!=="אחידה"?" "+char.shirtPattern:""}`);
+  else if (a.has("shirtColor")) parts.push(`עם חולצה ${SHIRT_COLOR_F[char.shirtColorName]||char.shirtColorName}`);
+  else if (a.has("shirtPattern") && char.shirtPattern!=="אחידה") parts.push(`עם חולצה ${char.shirtPattern}`);
+
+  if (!parts.length) return "מצא מישהו";
+  // Strip "עם" prefix from each part for list joining
+  const stripped = parts.map(p => p.startsWith("עם ") ? p.slice(3) : p);
+  if (stripped.length === 1) return `מצא מישהו עם ${stripped[0]}`;
+  const last = stripped[stripped.length - 1];
+  const rest = stripped.slice(0, -1);
+  return `מצא מישהו עם ${rest.join(", ")} ו${last}`;
+}
+
+function buildGenderDesc(char) {
+  const g=char.gender==="זכר"?"m":"f";
+  const noun=GENDER_NOUN[char.gender].sg;
+  const opts=[
+    `מצא את ה${noun} עם שיער ${ADJ_HAIR[char.hairColorName][g]}`,
+    `מצא את ה${noun} בעל שיער ${ADJ_STYLE[char.hairStyle][g]}`,
+  ];
+  if (char.glasses) opts.push(`מצא את ה${noun} עם המשקפיים`);
+  if (char.hat) opts.push(`מצא את ה${noun} עם הכובע`);
+  return randomFrom(opts);
+}
+
+function buildPluralDesc(attrType, attrValue, allFemale) {
+  const noun=allFemale?"ילדות":"ילדים";
+  if (attrType==="glasses")    return `סמן את כל ה${noun} שיש להם משקפיים`;
+  if (attrType==="hat")        return `סמן את כל ה${noun} שיש להם כובע`;
+  if (attrType==="shirtColor") return `סמן את כל ה${noun} עם חולצה ${SHIRT_COLOR_F[attrValue]||attrValue}`;
+  if (attrType==="hairColor")  return `סמן את כל ה${noun} עם שיער ${attrValue}`;
+  return `סמן את כל ה${noun}`;
+}
+
+function getHintEmoji(attrs, char) {
+  const emojis = [];
+  for (const a of attrs) {
+    if (a === "glasses")    { if(char?.glasses) emojis.push("👓"); }
+    else if (a === "hat")   { if(char?.hat) emojis.push("🎩"); }
+    else if (a === "beard") { if(char?.beard) emojis.push("🧔"); }
+    else if (a === "mustache") { if(char?.mustache) emojis.push("👨"); }
+    else if (a === "hairColor" || a === "hair") emojis.push(HAIR_PERSON_EMOJI[char?.hairColorName] || "👤");
+    else if (a === "shirtColor") emojis.push("👕" + (SHIRT_COLOR_EMOJI[char?.shirtColorName] || ""));
+    else if (a === "shirt")      emojis.push("👕" + (SHIRT_COLOR_EMOJI[char?.shirtColorName] || ""));
+    else if (a === "shirtPattern") emojis.push("👕");
+    else if (a === "gender") emojis.push(char?.gender === "נקבה" ? "👩" : "👨");
+  }
+  return emojis.join(" ") || "🔍";
+}
+
+// ─── Levels (NO gender attribute!) ───────────────────────────────────────────
+const LEVELS = [
+  { level:1, name:"בלש מתחיל", emoji:"🔍", type:"single", numPeople:2,
+    attributes:[["glasses"],["hat"],["hairColor"]],
+    description:"תיאור פשוט, 2 חשודים", color:"#27AE60" },
+  { level:2, name:"בלש סקרן", emoji:"🕵️", type:"single", numPeople:3,
+    attributes:[["glasses"],["hat"],["hairColor"],["shirtColor"],["mustache"],["glasses","shirtColor"],["hat","hairColor"]],
+    description:"3 חשודים, תכונות שונות", color:"#2980B9" },
+  { level:3, name:"בלש מנוסה", emoji:"🕵️‍♀️", type:"single", numPeople:4,
+    attributes:[["glasses","hairColor"],["glasses","shirtColor"],["hat","shirtColor"],["hairColor","shirtColor"],["glasses","hat"],["mustache","shirtColor"]],
+    description:"4 חשודים, 2 תכונות", color:"#8E44AD" },
+  { level:4, name:"בלש מומחה", emoji:"🏆", type:"single", numPeople:5,
+    attributes:[["hairColor","glasses","shirtColor"],["hat","glasses","shirtColor"],["hair","shirtColor","mustache"],["hairColor","hat","shirtColor"],["glasses","shirtPattern","hairColor"]],
+    description:"5 חשודים, 3 תכונות", color:"#E67E22" },
+  { level:5, name:"בלש על", emoji:"💎", type:"single", numPeople:6,
+    attributes:[["hairColor","glasses","shirtColor","hat"],["hair","shirtPattern","glasses","mustache"],["hairColor","beard","shirt"],["hairColor","glasses","hat","shirtColor"]],
+    description:"6 חשודים, 4 תכונות", color:"#C0392B" },
+];
+
+// ─── Puzzle generators ────────────────────────────────────────────────────────
+function genSingle(lv, qi) {
+  const {numPeople,attributes} = lv;
+  let target = generateCharacter(0);
+  const attrSet = attributes[qi % attributes.length];
+  // Force attributes to be present on target
+  if (attrSet.includes("hat") && !target.hat)           target={...target,hat:randomFrom(["בייסבול","קש"])};
+  if (attrSet.includes("glasses") && !target.glasses)   target={...target,glasses:true};
+  if (attrSet.includes("mustache") && !target.mustache) target={...target,mustache:true,gender:"זכר"};
+  if (attrSet.includes("beard") && !target.beard)       target={...target,beard:true,gender:"זכר"};
+
+  const suspects=[target];
+  for (let i=1;i<numPeople;i++) {
+    let d; let tries=0;
+    do {
+      d=generateCharacter(i);
+      const match=attrSet.every(a=>{
+        if(a==="glasses")      return d.glasses===target.glasses;
+        if(a==="mustache")     return d.mustache===target.mustache;
+        if(a==="hairColor")    return d.hairColorName===target.hairColorName;
+        if(a==="hair")         return d.hairColorName===target.hairColorName&&d.hairStyle===target.hairStyle;
+        if(a==="beard")        return d.beard===target.beard;
+        if(a==="hat")          return d.hat===target.hat;
+        if(a==="shirt")        return d.shirtColorName===target.shirtColorName&&d.shirtPattern===target.shirtPattern;
+        if(a==="shirtColor")   return d.shirtColorName===target.shirtColorName;
+        if(a==="shirtPattern") return d.shirtPattern===target.shirtPattern;
+        return false;
+      });
+      if(!match||tries++>40) break;
+    } while(true);
+    // If "hat" is tested, distractors must have NO hat (different hat type still looks like a hat)
+    if (attrSet.includes("hat")) d={...d,hat:null};
+    // If "glasses" is tested and target has glasses, distractors must not have glasses
+    if (attrSet.includes("glasses") && target.glasses) d={...d,glasses:false};
+    suspects.push({...d,id:i});
+  }
+  const sh=suspects.sort(()=>Math.random()-0.5);
+  return {
+    type:"single", suspects:sh, target,
+    targetIndex:sh.findIndex(c=>c.id===0),
+    description:buildDesc(target,attrSet),
+    attrs:attrSet,
+    hintEmoji:getHintEmoji(attrSet,target),
+  };
+}
+
+function genGender() {
+  const tg=randomFrom(["זכר","נקבה"]);
+  const target=generateCharacter(0,tg);
+  const desc=buildGenderDesc(target);
+  const mg=tg==="זכר"?"נקבה":"זכר";
+  const suspects=[target,
+    {...generateCharacter(1,mg),hairColorName:target.hairColorName,hairColor:target.hairColor,hairStyle:target.hairStyle,id:1},
+    ...Array.from({length:4},(_,i)=>generateCharacter(i+2)),
+  ];
+  const sh=suspects.sort(()=>Math.random()-0.5);
+  return {
+    type:"gender", suspects:sh, target, targetIndex:sh.findIndex(c=>c.id===0), description:desc,
+    attrs:["hair"], hintEmoji:"💇",
+    morphNote:`"${GENDER_NOUN[tg].sg}" = ${tg==="זכר"?"♂ זכר":"♀ נקבה"} | "${GENDER_NOUN[mg].sg}" = ${mg==="זכר"?"♂ זכר":"♀ נקבה"}`,
+  };
+}
+
+function genPlural() {
+  const attrType=randomFrom(["glasses","hat","shirtColor","hairColor"]);
+  const targetCount=randomFrom([2,3]);
+  let suspects=Array.from({length:6},(_,i)=>generateCharacter(i));
+  let attrValue=null;
+  if(attrType==="glasses") {
+    suspects=suspects.map((c,i)=>({...c,glasses:i<targetCount}));
+  } else if(attrType==="hat") {
+    const ht=randomFrom(["בייסבול","קש"]);
+    suspects=suspects.map((c,i)=>({...c,hat:i<targetCount?ht:null}));
+  } else if(attrType==="shirtColor") {
+    attrValue=randomFrom(Object.keys(SHIRT_COLORS));
+    const oth=Object.keys(SHIRT_COLORS).filter(k=>k!==attrValue);
+    suspects=suspects.map((c,i)=>{const col=i<targetCount?attrValue:randomFrom(oth);return{...c,shirtColorName:col,shirtColor:SHIRT_COLORS[col]};});
+  } else {
+    attrValue=randomFrom(Object.keys(HAIR_COLORS));
+    const oth=Object.keys(HAIR_COLORS).filter(k=>k!==attrValue);
+    suspects=suspects.map((c,i)=>{const col=i<targetCount?attrValue:randomFrom(oth);return{...c,hairColorName:col,hairColor:HAIR_COLORS[col]};});
+  }
+  const fg=randomFrom(["זכר","נקבה"]);
+  suspects=suspects.map((c,i)=>i<targetCount?{...c,gender:fg}:c);
+  const sh=suspects.sort(()=>Math.random()-0.5);
+  const ci=new Set();
+  sh.forEach((c,i)=>{
+    const m=attrType==="glasses"?c.glasses:attrType==="hat"?!!c.hat:attrType==="shirtColor"?c.shirtColorName===attrValue:c.hairColorName===attrValue;
+    if(m)ci.add(i);
+  });
+  const allFemale=[...ci].map(i=>sh[i]).every(c=>c.gender==="נקבה");
+  return {
+    type:"plural", suspects:sh, correctIndices:ci, attrType, attrValue,
+    description:buildPluralDesc(attrType,attrValue,allFemale),
+    attrs:[attrType], hintEmoji:ATTR_EMOJI[attrType]||"🔍",
+    morphNote:allFemale?`כולן ילדות (נקבה) → "ילדות"`:`יש לפחות ילד אחד (זכר) → "ילדים"`,
+  };
+}
+
+function makePuzzle(lv,qi) {
+  if(lv.type==="gender") return genGender();
+  if(lv.type==="plural") return genPlural();
+  return genSingle(lv,qi);
+}
+
+// ─── Detective Customizer ─────────────────────────────────────────────────────
+const HAT_COLORS = {שחור:"#2c3e50",חום:"#6B3A2A",כחול:"#2980B9",ירוק:"#1e8449"};
+const COAT_COLORS = {כחול_כהה:"#1a3a5c",חום:"#5D4037",ירוק_זית:"#33691E",אפור:"#455A64"};
+
+function DetectiveCustomizer({onDone}) {
+  const [isF, setIsF] = useState(false);
+  const [det, setDet] = useState({
+    skinTone:SKIN_TONES[0], hairColorName:"שחור", hairStyle:"קצר",
+    glasses:false, mustache:false, hatColor:"#2c3e50", hatBand:"#F1C40F",
+    coatColor:"#1a3a5c",
+  });
+  const [name, setName] = useState("");
+  const set = (k,v) => setDet(d=>({...d,[k]:v}));
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,zIndex:1,maxWidth:520,width:"100%",textAlign:"center"}}>
+      <div style={{fontSize:60}}>{isF?"👩‍✈️":"👮"}</div>
+      <h2 style={{color:"#F1C40F",fontSize:26,fontWeight:800,margin:0}}>!עצב את הבלש/ית שלך</h2>
+
+      {/* Gender toggle */}
+      <div style={{display:"flex",gap:0,borderRadius:10,overflow:"hidden",border:"1px solid rgba(255,255,255,0.15)"}}>
+        <button onClick={()=>setIsF(false)} style={{padding:"8px 22px",background:!isF?"#F1C40F":"transparent",color:!isF?"#1a1f2e":"#ccc",border:"none",cursor:"pointer",fontWeight:700,fontSize:15}}>בלש ♂</button>
+        <button onClick={()=>setIsF(true)}  style={{padding:"8px 22px",background:isF?"#F1C40F":"transparent",color:isF?"#1a1f2e":"#ccc",border:"none",cursor:"pointer",fontWeight:700,fontSize:15}}>בלשית ♀</button>
+      </div>
+
+      <DetectiveSVG det={det} size={120}/>
+
+      {[
+        {label:"🌍 גוון עור", options:SKIN_TONES.map(t=>({val:t,color:t})), key:"skinTone"},
+        {label:"💇 צבע שיער", options:Object.entries(HAIR_COLORS).map(([n,c])=>({val:n,color:c,title:n})), key:"hairColorName"},
+        {label:"🎩 כובע", options:Object.entries(HAT_COLORS).map(([n,c])=>({val:c,color:c,title:n})), key:"hatColor"},
+        {label:"🧥 מעיל", options:Object.entries(COAT_COLORS).map(([n,c])=>({val:c,color:c,title:n})), key:"coatColor"},
+      ].map(row=>(
+        <div key={row.key} style={cst.row}>
+          <div style={cst.lbl}>{row.label}</div>
+          <div style={cst.btns}>
+            {row.options.map(o=>(
+              <button key={o.val} title={o.title||""} onClick={()=>set(row.key,o.val)}
+                style={{...cst.circ, background:o.color, border:det[row.key]===o.val?"3px solid #F1C40F":"3px solid transparent"}}/>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* Hair style */}
+      <div style={cst.row}>
+        <div style={cst.lbl}>✂️ שיער</div>
+        <div style={cst.btns}>
+          {["קצר","ארוך","מתולתל"].map(st=>(
+            <button key={st} onClick={()=>set("hairStyle",st)}
+              style={{...cst.pill, borderColor:det.hairStyle===st?"#F1C40F":"rgba(255,255,255,0.15)", color:det.hairStyle===st?"#F1C40F":"#ccc"}}>
+              {st}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Extras: glasses + mustache */}
+      <div style={cst.row}>
+        <div style={cst.lbl}>✨ תוספות</div>
+        <div style={cst.btns}>
+          <button onClick={()=>set("glasses",!det.glasses)}
+            style={{...cst.pill, borderColor:det.glasses?"#F1C40F":"rgba(255,255,255,0.15)", color:det.glasses?"#F1C40F":"#ccc"}}>
+            🕶️ משקפיים
+          </button>
+          {!isF && <button onClick={()=>set("mustache",!det.mustache)}
+            style={{...cst.pill, borderColor:det.mustache?"#F1C40F":"rgba(255,255,255,0.15)", color:det.mustache?"#F1C40F":"#ccc"}}>
+            👨 שפם
+          </button>}
+        </div>
+      </div>
+
+      {/* Name */}
+      <div style={cst.row}>
+        <div style={cst.lbl}>📛 שם</div>
+        <input value={name} onChange={e=>setName(e.target.value)}
+          placeholder={isF?"שם הבלשית...":"שם הבלש..."}
+          style={{background:"rgba(255,255,255,0.08)",border:"1px solid rgba(255,255,255,0.2)",color:"white",borderRadius:8,padding:"8px 14px",fontSize:16,width:160,textAlign:"right",outline:"none"}}/>
+      </div>
+
+      <button style={{background:"#F1C40F",color:"#1a1f2e",border:"none",padding:"14px 40px",borderRadius:12,fontSize:20,fontWeight:800,cursor:"pointer",boxShadow:"0 4px 20px rgba(241,196,15,0.35)"}}
+        onClick={()=>onDone({...det, name:name||(isF?"הבלשית":"הבלש"), isFemale:isF})}>
+        !יאללה, למצוא! 🕵️
+      </button>
+    </div>
+  );
+}
+const cst = {
+  row:{display:"flex",alignItems:"center",gap:12,width:"100%",justifyContent:"space-between",background:"rgba(255,255,255,0.05)",borderRadius:10,padding:"10px 16px"},
+  lbl:{color:"#ccc",fontSize:14,fontWeight:600,minWidth:90,textAlign:"right"},
+  btns:{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"flex-start"},
+  circ:{width:32,height:32,borderRadius:"50%",cursor:"pointer"},
+  pill:{background:"rgba(255,255,255,0.07)",border:"1px solid",padding:"6px 13px",borderRadius:8,cursor:"pointer",fontSize:13},
+};
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+export default function DetectiveGame() {
+  const [screen, setScreen] = useState("intro");
+  const [detective, setDetective] = useState(null);
+  const [selectedLevel, setSelectedLevel] = useState(null);
+  const [puzzle, setPuzzle] = useState(null);
+  const [qi, setQi] = useState(0);
+  const [score, setScore] = useState(0);
+  const TQ=5;
+  const [streak, setStreak] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState(null);
+  const [isCorrect, setIsCorrect] = useState(null);
+  const [pluralSel, setPluralSel] = useState(new Set());
+  const [pluralDone, setPluralDone] = useState(false);
+  const [pluralOk, setPluralOk] = useState(null);
+  const [allCaught, setAllCaught] = useState([]);
+  const [showHint, setShowHint] = useState(false);
+  const [showArrest, setShowArrest] = useState(false);
+  const [arrestSuspect, setArrestSuspect] = useState(null);
+
+  const resetQ = ()=>{ setSelectedIdx(null); setIsCorrect(null); setPluralSel(new Set()); setPluralDone(false); setPluralOk(null); setShowArrest(false); setArrestSuspect(null); setShowHint(false); };
+
+  const startLevel = useCallback((lv)=>{
+    setSelectedLevel(lv); setQi(0); setScore(0); setStreak(0); setAllCaught([]);
+    const p=makePuzzle(lv,0); setPuzzle(p); resetQ();
+    speak(p.description);
+    setScreen("game");
+  },[]);
+
+  const handleSelect = (idx)=>{
+    if(puzzle.type==="plural"){
+      if(pluralDone) return;
+      setPluralSel(prev=>{const n=new Set(prev);n.has(idx)?n.delete(idx):n.add(idx);return n;});
+      return;
+    }
+    if(selectedIdx!==null) return;
+    setSelectedIdx(idx);
+    const ok=idx===puzzle.targetIndex;
+    setIsCorrect(ok);
+    if(ok){
+      setScore(s=>s+1); setStreak(s=>s+1);
+      const caught=puzzle.suspects[idx];
+      setAllCaught(prev=>[...prev,caught]);
+      setArrestSuspect(caught);
+      setShowArrest(true);
+      speak("החשוד נתפס!");
+    } else {
+      setStreak(0);
+      speak("לא נכון. נסה בפעם הבאה!");
+    }
+  };
+
+  const submitPlural = ()=>{
+    if(pluralDone||!pluralSel.size) return;
+    const ok=[...puzzle.correctIndices].sort((a,b)=>a-b).join(",")===
+             [...pluralSel].sort((a,b)=>a-b).join(",");
+    setPluralDone(true); setPluralOk(ok);
+    if(ok){
+      setScore(s=>s+1); setStreak(s=>s+1);
+      const caught=[...pluralSel].map(i=>puzzle.suspects[i]);
+      setAllCaught(prev=>[...prev,...caught]);
+      speak("מצוין! מצאת את כולם!");
+    } else { setStreak(0); speak("לא מדויק!"); }
+  };
+
+  const nextQ = ()=>{
+    setShowArrest(false); setArrestSuspect(null);
+    if(qi+1>=TQ){setScreen("result");return;}
+    const ni=qi+1; setQi(ni);
+    const p=makePuzzle(selectedLevel,ni);
+    setPuzzle(p); resetQ();
+    speak(p.description);
+  };
+
+  const answered = puzzle?.type==="plural"?pluralDone:selectedIdx!==null;
+  const charSize = !selectedLevel?120:selectedLevel.numPeople<=2?140:selectedLevel.numPeople<=3?120:selectedLevel.numPeople<=4?110:95;
+
+  return (
+    <div style={g.root}>
+      <style>{`
+        @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+        @keyframes pop{0%{transform:scale(0.4);opacity:0}70%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+        @keyframes slideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.6}}
+      `}</style>
+      <div style={g.grid}/>
+
+      {/* ARREST OVERLAY */}
+      {showArrest && (
+        <ArrestScene detective={detective} suspect={arrestSuspect} onContinue={nextQ}/>
+      )}
+
+      {/* INTRO */}
+      {screen==="intro" && (
+        <div style={g.cen}>
+          <div style={{fontSize:88,animation:"float 3s ease-in-out infinite"}}>🕵️</div>
+          <h1 style={g.title}>הבלש הקטן</h1>
+          <p style={{color:"#aaa",fontSize:18,margin:0}}>קרא את התיאור ומצא את החשוד בתור!</p>
+          <div style={g.chips}>
+            {["📋 תיאורים בעברית","🎯 5 רמות","🔊 הקראה"].map(t=><span key={t} style={g.chip}>{t}</span>)}
+          </div>
+          <button style={g.btnY} onClick={()=>setScreen("customize")}>!בואו נתחיל 🕵️</button>
+        </div>
+      )}
+
+      {/* CUSTOMIZE */}
+      {screen==="customize" && (
+        <div style={{...g.cen,maxWidth:540}}>
+          <DetectiveCustomizer onDone={det=>{setDetective(det);setScreen("levelSelect");}}/>
+        </div>
+      )}
+
+      {/* LEVEL SELECT */}
+      {screen==="levelSelect" && (
+        <div style={g.lvlScr}>
+          {detective && (
+            <div style={{display:"flex",alignItems:"center",gap:12,background:"rgba(241,196,15,0.1)",border:"1px solid rgba(241,196,15,0.25)",borderRadius:14,padding:"10px 20px"}}>
+              <DetectiveSVG det={detective} size={52}/>
+              <div style={{textAlign:"right"}}>
+                <div style={{color:"#F1C40F",fontWeight:700,fontSize:17}}>{detective.isFemale?"בלשית":"בלש"} {detective.name}</div>
+                <div style={{color:"#aaa",fontSize:12}}>מוכן/ת לפעולה!</div>
+              </div>
+            </div>
+          )}
+          <h2 style={{color:"#F1C40F",fontSize:27,fontWeight:800,margin:0}}>בחר רמת קושי</h2>
+          <div style={g.lvlGrid}>
+            {LEVELS.map(lv=>(
+              <button key={lv.level} style={{...g.lvlCard,borderColor:lv.color}} onClick={()=>startLevel(lv)}>
+                <div style={{fontSize:28}}>{lv.emoji}</div>
+                <div style={{color:lv.color,fontSize:14,fontWeight:700}}>{lv.name}</div>
+                <div style={{color:"#777",fontSize:11,textAlign:"center"}}>{lv.description}</div>
+                {lv.morphTip&&<div style={{fontSize:10,padding:"2px 8px",borderRadius:8,fontWeight:600,background:lv.color+"28",color:lv.color}}>{lv.type==="gender"?"📖 הטיית מין":"👥 יחיד/רבים"}</div>}
+              </button>
+            ))}
+          </div>
+          <button style={g.btnGr} onClick={()=>setScreen("intro")}>← חזור</button>
+        </div>
+      )}
+
+      {/* GAME */}
+      {screen==="game" && puzzle && (
+        <div style={g.gameScr}>
+          {/* Header */}
+          <div style={g.hdr}>
+            <div style={{display:"flex",alignItems:"center",gap:7}}>
+              {detective&&<DetectiveSVG det={detective} size={36}/>}
+              <span style={{color:selectedLevel.color,fontWeight:700,fontSize:13}}>{selectedLevel.emoji} {selectedLevel.name}</span>
+            </div>
+            <div style={{display:"flex",gap:5}}>
+              {Array.from({length:TQ}).map((_,i)=>(
+                <div key={i} style={{width:11,height:11,borderRadius:"50%",background:i<qi?"#27AE60":i===qi?selectedLevel.color:"#333"}}/>
+              ))}
+            </div>
+            <div style={{color:"#ddd",fontSize:12,display:"flex",alignItems:"center",gap:5}}>
+              ✅{score}/{qi+(answered?1:0)}
+              {streak>=2&&<span style={{background:"#E67E22",color:"white",padding:"1px 6px",borderRadius:7,fontSize:11,fontWeight:700}}>🔥{streak}</span>}
+            </div>
+          </div>
+
+          {/* Morph tip */}
+          {selectedLevel.morphTip&&(
+            <div style={{width:"100%",boxSizing:"border-box",border:`1px solid ${selectedLevel.color}55`,background:selectedLevel.color+"18",borderRadius:10,padding:"8px 14px",display:"flex",alignItems:"center",gap:9}}>
+              <span style={{fontSize:15}}>{selectedLevel.type==="gender"?"📖":"👥"}</span>
+              <span style={{color:"#aef",fontSize:12,fontWeight:600}}>{selectedLevel.morphTip}</span>
+            </div>
+          )}
+
+          {/* Description + TTS */}
+          <div style={g.desc}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:6}}>
+              <div style={{color:"#F1C40F",fontSize:12,fontWeight:600}}>{puzzle.type==="plural"?"👥 מצא את כולם:":"🔍 תיאור החשוד:"}</div>
+              <button onClick={()=>speak(puzzle.description)}
+                style={{background:"rgba(241,196,15,0.15)",border:"1px solid rgba(241,196,15,0.3)",color:"#F1C40F",borderRadius:7,padding:"4px 9px",cursor:"pointer",fontSize:16,flexShrink:0}}>
+                🔊
+              </button>
+            </div>
+            <div style={{color:"#fff",fontSize:21,fontWeight:700,lineHeight:1.4}}>{puzzle.description}</div>
+            {/* Hint button */}
+            <div style={{marginTop:10,display:"flex",alignItems:"center",gap:10}}>
+              {!showHint
+                ? <button onClick={()=>setShowHint(true)} style={{background:"rgba(241,196,15,0.1)",border:"1px solid rgba(241,196,15,0.25)",color:"#F1C40F",borderRadius:7,padding:"5px 14px",cursor:"pointer",fontSize:13,fontWeight:600}}>💡 רמז</button>
+                : <><span style={{color:"#888",fontSize:11}}>רמז:</span><span style={{fontSize:32}}>{puzzle.hintEmoji}</span></>
+              }
+            </div>
+            {puzzle.type==="plural"&&!pluralDone&&<div style={{marginTop:6,color:"#888",fontSize:12}}>לחץ על כל הדמויות המתאימות, אז "בדוק"</div>}
+          </div>
+
+          {/* Lineup */}
+          <div style={{color:"#444",fontSize:10,letterSpacing:"2px"}}>— תור החשודים —</div>
+          <div style={{...g.lineup,gridTemplateColumns:`repeat(${Math.min(puzzle.suspects.length,4)},1fr)`}}>
+            {puzzle.suspects.map((char,idx)=>{
+              let cs={...g.card};
+              if(puzzle.type==="plural"){
+                const isSel=pluralSel.has(idx),isTgt=puzzle.correctIndices.has(idx);
+                if(pluralDone){if(isTgt)cs={...cs,...g.cOk};else if(isSel)cs={...cs,...g.cBad};}
+                else if(isSel)cs={...cs,border:`2px solid ${selectedLevel.color}`,background:selectedLevel.color+"28"};
+              } else {
+                if(selectedIdx!==null){if(idx===puzzle.targetIndex)cs={...cs,...g.cOk};else if(idx===selectedIdx&&!isCorrect)cs={...cs,...g.cBad};}
+              }
+              const showV=(puzzle.type!=="plural"&&selectedIdx!==null&&idx===puzzle.targetIndex)||(puzzle.type==="plural"&&pluralDone&&puzzle.correctIndices.has(idx));
+              const showX=(puzzle.type!=="plural"&&selectedIdx!==null&&idx===selectedIdx&&!isCorrect)||(puzzle.type==="plural"&&pluralDone&&pluralSel.has(idx)&&!puzzle.correctIndices.has(idx));
+              const pend=puzzle.type==="plural"&&pluralSel.has(idx)&&!pluralDone;
+              return (
+                <button key={char.id} style={cs} onClick={()=>handleSelect(idx)} disabled={puzzle.type!=="plural"&&selectedIdx!==null}>
+                  <div style={{color:"#555",fontSize:10,fontWeight:700}}>{idx+1}</div>
+                  <CharacterSVG char={char} size={charSize}/>
+                  {showV&&<div style={g.bV}>✓</div>}
+                  {showX&&<div style={g.bX}>✗</div>}
+                  {pend&&<div style={{...g.bV,background:selectedLevel.color}}>✓</div>}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Feedback for wrong / plural */}
+          {answered && !showArrest && (
+            <div style={{...g.fb,
+              background:(puzzle.type==="plural"?pluralOk:isCorrect)?"#d4edda":"#f8d7da",
+              color:(puzzle.type==="plural"?pluralOk:isCorrect)?"#155724":"#721c24",
+              borderColor:(puzzle.type==="plural"?pluralOk:isCorrect)?"#c3e6cb":"#f5c6cb",
+              animation:"slideUp 0.25s ease",
+            }}>
+              {puzzle.type==="plural"
+                ?(pluralOk?"✅ מצוין! מצאת את כולם!":"❌ לא מדויק. הנכונים מסומנים בירוק")
+                :(!isCorrect?"❌ לא נכון. החשוד הנכון מסומן בירוק":"")}
+            </div>
+          )}
+
+          {answered&&puzzle.morphNote&&(
+            <div style={{width:"100%",boxSizing:"border-box",background:"rgba(241,196,15,0.1)",border:"1px solid rgba(241,196,15,0.2)",borderRadius:9,padding:"8px 14px",color:"#F1C40F",fontSize:12}}>
+              💡 <strong>דקדוק:</strong> {puzzle.morphNote}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          <div style={{display:"flex",gap:10,flexWrap:"wrap",justifyContent:"center"}}>
+            {puzzle.type==="plural"&&!pluralDone&&pluralSel.size>0&&<button style={g.btnY} onClick={submitPlural}>בדוק ✓</button>}
+            {answered&&!showArrest&&(puzzle.type==="plural"||!isCorrect)&&(
+              <button style={g.btnY} onClick={nextQ}>{qi+1>=TQ?"סיום":"שאלה הבאה ←"}</button>
+            )}
+            <button style={g.btnGr} onClick={()=>setScreen("levelSelect")}>← בחר רמה</button>
+          </div>
+        </div>
+      )}
+
+      {/* RESULT */}
+      {screen==="result" && (
+        <div style={{...g.cen,gap:16}}>
+          <div style={{fontSize:80,animation:"pop 0.5s ease"}}>
+            {score===TQ?"🏆":score>=TQ*0.8?"⭐":score>=TQ*0.6?"👍":"🔄"}
+          </div>
+          <h2 style={g.title}>{score===TQ?"מושלם!":score>=TQ*0.8?"כל הכבוד!":score>=TQ*0.6?"לא רע!":"נסה שוב!"}</h2>
+          <div style={{color:"white",fontSize:52,fontWeight:900}}>{score} / {TQ}</div>
+          <div style={{display:"flex",gap:8}}>
+            {[0,1,2].map(i=><span key={i} style={{fontSize:34,opacity:score>=Math.ceil(TQ*(i+1)/3)?1:0.18}}>⭐</span>)}
+          </div>
+          {allCaught.length>0&&(
+            <div style={{background:"rgba(0,0,0,0.3)",borderRadius:12,padding:"12px 18px",border:"1px solid rgba(255,255,255,0.08)"}}>
+              <div style={{color:"#888",fontSize:11,marginBottom:8}}>🚔 חשודים שנתפסו</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap",justifyContent:"center"}}>
+                {allCaught.map((c,i)=><CharacterSVG key={i} char={{...c,id:i+200}} size={50}/>)}
+              </div>
+            </div>
+          )}
+          <div style={{display:"flex",gap:10}}>
+            <button style={g.btnY} onClick={()=>startLevel(selectedLevel)}>שחק שוב</button>
+            <button style={g.btnGr} onClick={()=>setScreen("levelSelect")}>בחר רמה</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const g = {
+  root:{minHeight:"100vh",background:"#1a1f2e",fontFamily:"'Segoe UI',Tahoma,sans-serif",direction:"rtl",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:18,boxSizing:"border-box",position:"relative"},
+  grid:{position:"fixed",inset:0,backgroundImage:"linear-gradient(rgba(255,255,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.03) 1px,transparent 1px)",backgroundSize:"40px 40px",pointerEvents:"none"},
+  cen:{display:"flex",flexDirection:"column",alignItems:"center",gap:15,zIndex:1,maxWidth:600,width:"100%",textAlign:"center"},
+  title:{color:"#F1C40F",fontSize:46,fontWeight:800,margin:0,textShadow:"0 0 40px rgba(241,196,15,0.4)"},
+  chips:{display:"flex",gap:8,flexWrap:"wrap",justifyContent:"center"},
+  chip:{background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.12)",color:"#ccc",padding:"7px 14px",borderRadius:20,fontSize:13},
+  btnY:{background:"#F1C40F",color:"#1a1f2e",border:"none",padding:"13px 30px",borderRadius:12,fontSize:17,fontWeight:700,cursor:"pointer",boxShadow:"0 4px 20px rgba(241,196,15,0.3)"},
+  btnGr:{background:"rgba(255,255,255,0.08)",color:"#ccc",border:"1px solid rgba(255,255,255,0.14)",padding:"11px 22px",borderRadius:10,fontSize:15,cursor:"pointer"},
+  lvlScr:{display:"flex",flexDirection:"column",alignItems:"center",gap:16,zIndex:1,maxWidth:720,width:"100%"},
+  lvlGrid:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(165px,1fr))",gap:11,width:"100%"},
+  lvlCard:{background:"rgba(255,255,255,0.05)",border:"2px solid",borderRadius:15,padding:"15px 11px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:5},
+  gameScr:{display:"flex",flexDirection:"column",alignItems:"center",gap:12,zIndex:1,maxWidth:780,width:"100%"},
+  hdr:{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",background:"rgba(255,255,255,0.06)",borderRadius:11,padding:"9px 15px",boxSizing:"border-box"},
+  desc:{background:"linear-gradient(135deg,rgba(241,196,15,0.12),rgba(241,196,15,0.05))",border:"1px solid rgba(241,196,15,0.3)",borderRadius:15,padding:"15px 20px",width:"100%",boxSizing:"border-box"},
+  lineup:{display:"grid",gap:9,width:"100%"},
+  card:{background:"rgba(255,255,255,0.06)",border:"2px solid rgba(255,255,255,0.1)",borderRadius:13,padding:"9px 5px",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:4,position:"relative"},
+  cOk:{background:"rgba(39,174,96,0.15)",border:"2px solid #27AE60",boxShadow:"0 0 16px rgba(39,174,96,0.3)"},
+  cBad:{background:"rgba(231,76,60,0.1)",border:"2px solid #E74C3C"},
+  bV:{position:"absolute",top:6,right:6,background:"#27AE60",color:"white",width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700},
+  bX:{position:"absolute",top:6,right:6,background:"#E74C3C",color:"white",width:20,height:20,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700},
+  fb:{padding:"11px 18px",borderRadius:11,border:"1px solid",fontSize:15,fontWeight:600,width:"100%",boxSizing:"border-box",textAlign:"center"},
+};
